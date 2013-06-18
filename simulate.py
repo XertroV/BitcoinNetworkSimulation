@@ -1,11 +1,22 @@
 #!/usr/bin/python
 
-import random, time
+import random, time, sys
 import hashlib, string
 from collections import deque
 import threading, multiprocessing
 
-NUM_NODES = 2000
+import signal
+
+def signal_handler(signal, frame):
+		global logger, allPeers
+		allPeers = []
+		print_stats(allPeers)
+		logger.close()
+		print 'exiting'
+		sys.exit(0)
+signal.signal(signal.SIGINT, signal_handler)
+
+NUM_NODES = 5000
 # cycles per second
 TIME_CONSTANT = 5
 # measured in kb
@@ -26,9 +37,10 @@ class newBlock():
 			self.height = 0
 		else:
 			self.height = parent.height + 1
+		self.name = "%s.%s,%s" % (self.height, self.hash[0:4], 'None' if self.parent==None else self.parent.hash[0:4])
 	
 	def __repr__(self):
-		return "%s:%s" % (self.height, self.hash[0:8])
+		return self.name
 
 class blockTree():
 	def __init__(self):
@@ -178,7 +190,22 @@ class blockOverlord():
 def sample_status(allPeers):
 	print ["%s:%s" % (peer.id,peer.numBlocks()) for peer in allPeers]
 
+try:
+	logfile = sys.argv[1]
+except:
+	logfile = './bitcoinsim.log'
+
+logger = open(logfile, 'w')
+def log(message, newline=True):
+	global logger, logfile
+	logger.write(message + ('\n' if newline else ''))
+	logger.close()
+	logger = open(logfile, 'a')
+	
+lastMessage = []
+statsCounter = 1
 def print_stats(allPeers):
+	global lastMessage, statsCounter
 	topBlocks = {}
 	for peer in allPeers:
 		if peer.topBlock != None and peer.topBlock not in topBlocks.keys():
@@ -186,11 +213,20 @@ def print_stats(allPeers):
 		elif peer.topBlock != None:
 			topBlocks[peer.topBlock] = topBlocks[peer.topBlock] + 1
 	proportions = {}
+	message = []
 	for block,count in topBlocks.iteritems():
-		print "%s,%s:" % (block, 1.0*count/NUM_NODES),
-	print
+		message.append("%s,%02.3f" % (block, 1.0*count/NUM_NODES))
+	if message == lastMessage:
+		statsCounter += 1
+	else:
+		lastMessage = message
+		log('; for %s second%s' % (statsCounter, 's' if statsCounter > 1 else ''))
+		statsCounter = 1
+		log(' - '.join(message),False)
 			
+allPeers = []
 def main():
+	global allPeers
 	print 'Setup..'
 	allPeers = [Node(x) for x in range(NUM_NODES)]
 	print 'Nodes created'
